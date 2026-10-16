@@ -14,14 +14,14 @@
 - [x] 7. 运行测试验证稳定版（预期 13 passed）
 - [x] 8. git add + commit：稳定版 v0.1（main 分支，仅本地提交）
 - [x] 9. 创建并切换 test 分支，取回新功能版 snake_game.py
-- [ ] 10. 同步勾选本计划，收尾说明
+- [x] 10. 同步勾选本计划，收尾说明
 
 ## 阶段二：新功能开发（test 分支，待开始）
 
 - [x] 更新 test_snake_game.py：补齐最高分 / 加速 / 存档函数的单元测试
   （说明：v02 的 step() 会读写 highscore 键，同步给 make_state 补上了该键，修复了旧进食测试的 KeyError 隐患）
 - [x] 全量测试通过（23 passed，0.47s）
-- [ ] test 分支提交 v0.2
+- [x] test 分支提交 v0.2（提交号 21ccc3a，冗余的 v02 暂存文件已删除）
 - [ ] （可选）合回 main 并推送 GitHub（等用户提供远程仓库后再执行）
 
 ## 决策记录
