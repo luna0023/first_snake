@@ -22,7 +22,8 @@
   （说明：v02 的 step() 会读写 highscore 键，同步给 make_state 补上了该键，修复了旧进食测试的 KeyError 隐患）
 - [x] 全量测试通过（23 passed，0.47s）
 - [x] test 分支提交 v0.2（提交号 21ccc3a，冗余的 v02 暂存文件已删除）
-- [ ] （可选）合回 main 并推送 GitHub（等用户提供远程仓库后再执行）
+- [x] 推送 GitHub：test 与 main 均已推送至 origin（github.com/luna0023/first_snake，2026-10-16 完成）
+- [ ] （可选）把 v0.2 合回 main 后再次推送 main
 
 ## 决策记录
 
