@@ -6,6 +6,9 @@
   - ESC / 关闭窗口：退出游戏
 """
 
+import array
+import json
+import math
 import random
 import sys
 from pathlib import Path
@@ -18,7 +21,10 @@ GRID_WIDTH = 30         # 网格列数
 GRID_HEIGHT = 20        # 网格行数
 WINDOW_WIDTH = CELL_SIZE * GRID_WIDTH
 WINDOW_HEIGHT = CELL_SIZE * GRID_HEIGHT
-FPS = 10                # 蛇移动速度（帧率）
+BASE_FPS = 10            # 初始速度（帧率）
+MAX_FPS = 24             # 速度上限
+SPEEDUP_PER_FOOD = 0.5   # 每吃一个食物增加的速度
+HIGHSCORE_FILE = Path(__file__).with_name("highscore.json")  # 最高分存档
 
 # 颜色 (R, G, B)
 COLOR_BG = (15, 15, 25)
@@ -46,6 +52,29 @@ def random_food(snake: list[tuple[int, int]]) -> tuple[int, int]:
     return random.choice(empty)
 
 
+def load_highscore(path: Path = HIGHSCORE_FILE) -> int:
+    """读取本地最高分；文件缺失或损坏时返回 0。"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return max(0, int(json.load(f).get("highscore", 0)))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 0
+
+
+def save_highscore(score: int, path: Path = HIGHSCORE_FILE) -> None:
+    """保存最高分；写入失败时静默忽略，不影响游戏。"""
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"highscore": int(score)}, f)
+    except OSError:
+        pass
+
+
+def speed_for(score: int) -> float:
+    """根据当前得分计算游戏速度（帧率），有上限。"""
+    return min(BASE_FPS + score * SPEEDUP_PER_FOOD, MAX_FPS)
+
+
 def draw_cell(screen: pygame.Surface, pos: tuple[int, int], color: tuple[int, int, int]) -> None:
     """按网格坐标绘制一个方块。"""
     rect = pygame.Rect(pos[0] * CELL_SIZE, pos[1] * CELL_SIZE, CELL_SIZE, CELL_SIZE)
@@ -53,7 +82,7 @@ def draw_cell(screen: pygame.Surface, pos: tuple[int, int], color: tuple[int, in
     pygame.draw.rect(screen, COLOR_BG, rect, 1)  # 描边，形成格子感
 
 
-def reset_game() -> dict:
+def reset_game(highscore: int = 0) -> dict:
     """返回一份初始游戏状态。"""
     center = (GRID_WIDTH // 2, GRID_HEIGHT // 2)
     snake = [center, (center[0] - 1, center[1]), (center[0] - 2, center[1])]
@@ -63,6 +92,7 @@ def reset_game() -> dict:
         "pending_direction": RIGHT,   # 下一帧方向（防止一帧内 180 度掉头）
         "food": random_food(snake),
         "score": 0,
+        "highscore": highscore,       # 历史最高分
         "game_over": False,
     }
 
@@ -100,9 +130,36 @@ def step(state: dict) -> None:
     state["snake"].insert(0, new_head)
     if will_eat:
         state["score"] += 1
+        state["highscore"] = max(state["highscore"], state["score"])
         state["food"] = random_food(state["snake"])
     else:
         state["snake"].pop()  # 没吃到食物则去掉尾巴，保持长度
+
+
+def make_tone(freq: float, ms: int, volume: float = 0.4) -> pygame.mixer.Sound:
+    """生成一段带淡出包络的正弦波提示音（单声道 16 位）。"""
+    sample_rate, _fmt, _channels = pygame.mixer.get_init()
+    n = int(sample_rate * ms / 1000)
+    samples = array.array(
+        "h",
+        (
+            int(volume * 32767 * math.sin(2 * math.pi * freq * i / sample_rate) * (1 - i / n))
+            for i in range(n)
+        ),
+    )
+    return pygame.mixer.Sound(buffer=samples.tobytes())
+
+
+def init_sounds() -> dict:
+    """初始化音效；无音频设备时优雅降级为空字典。"""
+    try:
+        pygame.mixer.init(frequency=22050, size=-16, channels=1)
+        return {
+            "eat": make_tone(880, 100),   # 吃到食物：短促高音
+            "over": make_tone(220, 400),  # 游戏结束：低沉长音
+        }
+    except pygame.error:
+        return {}
 
 
 def load_font(size: int) -> pygame.font.Font:
@@ -130,8 +187,9 @@ def main() -> None:
     clock = pygame.time.Clock()
     font = load_font(24)
     big_font = load_font(48)
+    sounds = init_sounds()
 
-    state = reset_game()
+    state = reset_game(load_highscore())
 
     # 按键到方向的映射
     key_to_dir = {
@@ -153,12 +211,23 @@ def main() -> None:
                     sys.exit()
                 if state["game_over"]:
                     if event.key == pygame.K_SPACE:
-                        state = reset_game()
+                        state = reset_game(state["highscore"])
                 elif event.key in key_to_dir:
                     try_change_direction(state, key_to_dir[event.key])
 
         # ---------- 逻辑更新 ----------
+        prev_score = state["score"]
+        prev_over = state["game_over"]
         step(state)
+
+        # 吃到食物：播放提示音
+        if state["score"] > prev_score and sounds.get("eat"):
+            sounds["eat"].play()
+        # 刚刚游戏结束：播放结束音并落盘最高分
+        if state["game_over"] and not prev_over:
+            if sounds.get("over"):
+                sounds["over"].play()
+            save_highscore(state["highscore"])
 
         # ---------- 绘制 ----------
         screen.fill(COLOR_BG)
@@ -177,8 +246,10 @@ def main() -> None:
             color = COLOR_SNAKE_HEAD if i == 0 else COLOR_SNAKE_BODY
             draw_cell(screen, segment, color)
 
-        # 分数
-        score_surf = font.render(f"得分: {state['score']}", True, COLOR_TEXT)
+        # 分数与最高分
+        score_surf = font.render(
+            f"得分: {state['score']}   最高分: {state['highscore']}", True, COLOR_TEXT
+        )
         screen.blit(score_surf, (10, 8))
 
         # 游戏结束提示
@@ -191,7 +262,7 @@ def main() -> None:
             screen.blit(tip_surf, tip_rect)
 
         pygame.display.flip()
-        clock.tick(FPS)
+        clock.tick(speed_for(state["score"]))
 
 
 if __name__ == "__main__":

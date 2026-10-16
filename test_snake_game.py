@@ -7,7 +7,7 @@
 import snake_game as g
 
 
-def make_state(snake, direction=g.RIGHT, food=(0, 0), score=0, game_over=False):
+def make_state(snake, direction=g.RIGHT, food=(0, 0), score=0, game_over=False, highscore=0):
     """构造一份可控的游戏状态。"""
     return {
         "snake": list(snake),
@@ -15,6 +15,7 @@ def make_state(snake, direction=g.RIGHT, food=(0, 0), score=0, game_over=False):
         "pending_direction": direction,
         "food": food,
         "score": score,
+        "highscore": highscore,
         "game_over": game_over,
     }
 
@@ -141,3 +142,64 @@ def test_turn_then_reverse_is_blocked_next_frame():
     g.step(state)  # 此时 direction 已变为 UP
     assert g.try_change_direction(state, g.DOWN) is False
     assert state["pending_direction"] == g.UP
+
+
+# ---------- speed_for：加速机制 ----------
+
+def test_speed_for_base_speed():
+    assert g.speed_for(0) == g.BASE_FPS
+
+
+def test_speed_for_increases_with_score():
+    assert g.speed_for(10) == g.BASE_FPS + 10 * g.SPEEDUP_PER_FOOD
+
+
+def test_speed_for_capped_at_max():
+    """得分极高时速度被封顶，不再增加。"""
+    assert g.speed_for(10**9) == g.MAX_FPS
+
+
+# ---------- load/save_highscore：最高分存档 ----------
+
+def test_load_highscore_missing_file_returns_zero(tmp_path):
+    assert g.load_highscore(tmp_path / "no_such.json") == 0
+
+
+def test_load_highscore_corrupted_file_returns_zero(tmp_path):
+    bad = tmp_path / "bad.json"
+    bad.write_text("不是合法 JSON", encoding="utf-8")
+    assert g.load_highscore(bad) == 0
+
+
+def test_load_highscore_negative_clamped_to_zero(tmp_path):
+    p = tmp_path / "neg.json"
+    p.write_text('{"highscore": -5}', encoding="utf-8")
+    assert g.load_highscore(p) == 0
+
+
+def test_save_then_load_highscore_roundtrip(tmp_path):
+    p = tmp_path / "hs.json"
+    g.save_highscore(42, p)
+    assert g.load_highscore(p) == 42
+
+
+def test_reset_game_keeps_given_highscore():
+    assert g.reset_game(highscore=7)["highscore"] == 7
+
+
+# ---------- step：最高分联动 ----------
+
+def test_step_eating_updates_highscore():
+    """吃到食物后，最高分应同步提高到当前得分。"""
+    state = make_state(snake=[(5, 5), (4, 5), (3, 5)], direction=g.RIGHT, food=(6, 5), highscore=0)
+    g.step(state)
+    assert state["score"] == 1
+    assert state["highscore"] == 1
+
+
+def test_step_highscore_keeps_larger_existing():
+    """历史最高分更高时，吃到食物不会把最高分降下来。"""
+    state = make_state(snake=[(5, 5), (4, 5), (3, 5)], direction=g.RIGHT, food=(6, 5), highscore=99)
+    g.step(state)
+    assert state["score"] == 1
+    assert state["highscore"] == 99
